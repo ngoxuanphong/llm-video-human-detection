@@ -38,7 +38,7 @@ def test_gif_video_features():
         
         # Import and run demo
         try:
-            from src.demo_video_analysis import analyze_video_for_falls
+            from demo import analyze_video_for_falls
             
             console.print(f"[green]✓[/green] Chạy demo với format: [bold]{save_format}[/bold]")
             

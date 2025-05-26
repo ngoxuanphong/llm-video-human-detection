@@ -4,8 +4,8 @@ setup:
 test:
 	python src/test_system.py
 
-run:
-	python src/demo_video_analysis.py
+demo:
+	python demo.py
 
 main:
-	python src/fall_detection_system.py
+	python main.py
