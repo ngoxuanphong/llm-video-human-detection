@@ -244,15 +244,14 @@ class FallDetectionWebUI:
         status_text = f"""
 📊 **TRẠNG THÁI HỆ THỐNG**
 
-🎥 **Camera:** {self.camera_status}
-🔍 **Lần phân tích:** {self.analysis_count}
-📱 **Telegram:** {'Bật' if USE_TELE_ALERT else 'Tắt'}
-💾 **Lưu frames:** {'Bật (' + SAVE_FORMAT + ')' if SAVE_ANALYSIS_FRAMES else 'Tắt'}
-⏰ **Thời gian hoạt động:** {uptime}
-🔄 **Chu kỳ phân tích:** {self.analysis_interval}s
-📊 **Buffer frames:** {len(self.frame_buffer)}
-📈 **Khung hình đã xử lý:** {self.frame_count}
-🚨 **Cảnh báo té ngã:** {len(self.alert_history)}
+🎥 **Camera:** {self.camera_status}\n
+🔍 **Lần phân tích:** {self.analysis_count}\n
+📱 **Gửi Tin Nhắn:** {'Bật' if USE_TELE_ALERT else 'Tắt'}\n
+💾 **Lưu Frames:** {'Bật (' + SAVE_FORMAT.upper() + ')' if SAVE_ANALYSIS_FRAMES else 'Tắt'}\n
+⏰ **Thời gian hoạt động:** {uptime}\n
+🔄 **Chu kỳ:** {self.analysis_interval}s\n
+📈 **Khung hình/Buffer Frames:** {self.frame_count} / {len(self.frame_buffer)}\n
+🚨 **Cảnh báo:** {len(self.alert_history)}\n
 
 📋 **Kết quả phân tích gần nhất:**
 {self.last_analysis_result}
@@ -265,7 +264,7 @@ class FallDetectionWebUI:
             return "Chưa có log nào..."
         
         log_text = ""
-        for log in self.system_logs[-20:]:  # Show last 20 logs
+        for log in self.system_logs[-30:]:  # Show last 30 logs
             emoji = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "error": "❌", "alert": "🚨"}
             icon = emoji.get(log["type"], "📝")
             log_text += f"[{log['time']}] {icon} {log['message']}\n"
@@ -350,9 +349,9 @@ def create_interface():
         
         with gr.Tab("📋 Nhật Ký Hệ Thống"):
             logs_display = gr.Textbox(
-                label="📝 System Logs (20 mục gần nhất)",
+                label="📝 System Logs (30 mục gần nhất)",
                 value=fall_system.get_logs_display(),
-                lines=20,
+                lines=30,
                 interactive=False,
                 max_lines=25
             )
@@ -466,34 +465,72 @@ def create_interface():
             outputs=[control_output]
         )
         
-        # Auto-refresh components every 2 seconds when running
-        def update_interface():
+        # Fast refresh for camera feed (0.1s for real-time video)
+        def update_camera():
+            return fall_system.get_current_frame()
+        
+        # Slower refresh for status/logs/alerts (2s for text data)
+        def update_status_and_logs():
             if fall_system.is_running:
                 return (
-                    fall_system.get_current_frame(),
                     fall_system.get_status_info(),
                     fall_system.get_logs_display(),
                     fall_system.get_alert_history_display()
                 )
             else:
                 return (
-                    fall_system.get_current_frame(),
                     fall_system.get_status_info(),
                     gr.update(),  # Don't update logs if not running
                     gr.update()   # Don't update alerts if not running
                 )
         
-        # Set up auto-refresh timer using gr.Timer (Gradio 5.x)
+        # Set up dual auto-refresh timers using gr.Timer (Gradio 5.x)
         try:
-            refresh_timer = gr.Timer(2.0)  # 2 seconds interval
-            refresh_timer.tick(
-                update_interface,
-                outputs=[camera_feed, status_display, logs_display, alert_display]
+            # Fast timer for camera feed (0.1s = 10 FPS)
+            camera_timer = gr.Timer(0.1)
+            camera_timer.tick(
+                update_camera,
+                outputs=[camera_feed]
             )
+            
+            # Slower timer for status and logs (2s)
+            status_timer = gr.Timer(2.0)
+            status_timer.tick(
+                update_status_and_logs,
+                outputs=[status_display, logs_display, alert_display]
+            )
+            
+            print("✅ Dual refresh timers set up: Camera 0.1s, Status/Logs 2s")
+            
         except Exception as e:
-            print(f"⚠️ Auto-refresh timer not available: {e}")
-            # Manual refresh only
-            pass
+            print(f"⚠️ Auto-refresh timers not available: {e}")
+            # Fallback: single timer for everything at 1s
+            try:
+                fallback_timer = gr.Timer(1.0)
+                def update_all():
+                    if fall_system.is_running:
+                        return (
+                            fall_system.get_current_frame(),
+                            fall_system.get_status_info(),
+                            fall_system.get_logs_display(),
+                            fall_system.get_alert_history_display()
+                        )
+                    else:
+                        return (
+                            fall_system.get_current_frame(),
+                            fall_system.get_status_info(),
+                            gr.update(),
+                            gr.update()
+                        )
+                
+                fallback_timer.tick(
+                    update_all,
+                    outputs=[camera_feed, status_display, logs_display, alert_display]
+                )
+                print("⚠️ Using fallback timer: All components 1s")
+            except:
+                print("❌ No auto-refresh available - manual refresh only")
+                pass
     
     return demo
 
