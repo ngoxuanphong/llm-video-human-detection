@@ -2,6 +2,21 @@
 
 A real-time AI-powered fall detection system using OpenAI's vision models and Telegram notifications for hospital environments.
 
+## 🆕 Two Versions Available
+
+### 🖥️ Console Version (`main.py`)
+- Terminal-based interface with Rich console formatting
+- OpenCV camera window display
+- Command-line operation
+
+### 🌐 Web UI Version (`main_ui.py`) - **NEW!**
+- Modern web-based interface using Gradio
+- Remote access via browser
+- Real-time dashboard and monitoring
+- Multi-tab interface with logs and alerts
+- Export functionality for reports
+- **👉 See [README_WEB_UI.md](README_WEB_UI.md) for detailed Web UI documentation**
+
 ## Features
 
 - **Real-time fall detection** using OpenAI GPT-4 Vision
@@ -11,6 +26,7 @@ A real-time AI-powered fall detection system using OpenAI's vision models and Te
 - **Evidence collection** - automatically saves frames when falls are detected
 - **Cooldown system** to prevent alert spam
 - **Live camera monitoring** with timestamp overlay
+- **Web UI interface** for easy remote monitoring and control
 
 ## System Requirements
 
@@ -65,23 +81,52 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id_here
 - Default uses camera index 0 (first camera)
 - Modify `camera_index` in `fall_detection_system.py` if needed
 
+## Quick Start
+
+### 🌐 Web UI Version (Recommended for new users)
+```bash
+# Quick start with automatic checks
+python start_web_ui.py
+
+# Or run directly
+python main_ui.py
+```
+Then open http://localhost:7860 in your browser.
+
+### 🖥️ Console Version
+```bash
+# Test the system first
+python src/test_system.py
+
+# Run the fall detection system
+python main.py
+```
+
 ## Usage
 
-### 1. Test the System
+### Web UI Version
+1. **Start the Web UI**: Run `python start_web_ui.py`
+2. **Open Browser**: Go to http://localhost:7860
+3. **Configure Camera**: Select camera index (usually 0)
+4. **Start Detection**: Click "🚀 Khởi Động" button
+5. **Monitor**: Use the dashboard tabs for real-time monitoring
+
+### Console Version
+1. **Test the System**
 ```bash
-python test_system.py
+python src/test_system.py
 ```
 This will verify:
 - Camera connectivity
 - OpenAI API connection
 - Telegram bot functionality
 
-### 2. Run the Fall Detection System
+2. **Run the Fall Detection System**
 ```bash
-python fall_detection_system.py
+python main.py
 ```
 
-### 3. Monitor the System
+3. **Monitor the System**
 - A window will show the live camera feed
 - Timestamp overlay shows current time
 - Console shows analysis logs every 5 seconds
@@ -115,14 +160,24 @@ The system uses OpenAI's GPT-4 Vision model to analyze frames for:
 
 ```
 video_understading/
-├── fall_detection_system.py    # Main system
-├── test_system.py             # System testing
-├── detection.py               # Original detection script
-├── camera.py                  # Original camera script
-├── requirements.txt           # Dependencies
-├── env_template.txt          # Environment template
-├── README.md                 # Documentation
-└── evidence/                 # Auto-created for evidence images
+├── main.py                    # Console version (main system)
+├── main_ui.py                # Web UI version (Gradio interface)
+├── start_web_ui.py           # Quick start script for Web UI
+├── demo.py                   # Demo analysis script
+├── requirements.txt          # Python dependencies
+├── env_template.txt         # Environment configuration template
+├── README.md                # Main documentation
+├── README_WEB_UI.md         # Web UI specific documentation
+├── src/                     # Source code modules
+│   ├── __init__.py         # Configuration and initialization
+│   ├── utils.py            # Utility functions
+│   ├── alert.py            # Telegram notification handling
+│   ├── setup.py            # Setup and configuration
+│   └── test_system.py      # System testing
+├── evidence/               # Auto-created for evidence images
+├── temp/                   # Temporary files (analysis frames)
+└── media/                  # Demo videos
+    └── bison.mp4          # Test video
 ```
 
 ## Troubleshooting
