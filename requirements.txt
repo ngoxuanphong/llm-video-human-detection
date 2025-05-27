@@ -8,3 +8,4 @@ rich==13.7.0
 imageio==2.34.0
 imageio-ffmpeg==0.4.9
 gradio>=5.31.0
+pre-commit==4.2.0

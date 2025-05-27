@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 
+
 def install_dependencies():
     """Install required dependencies"""
     print("Installing dependencies...")
@@ -19,23 +20,24 @@ def install_dependencies():
         print(f"❌ Failed to install dependencies: {e}")
         return False
 
+
 def create_env_file():
     """Create .env file from template"""
-    if os.path.exists('.env'):
+    if os.path.exists(".env"):
         print("⚠️  .env file already exists, skipping creation")
         return True
-    
-    if not os.path.exists('env_template.txt'):
+
+    if not os.path.exists("env_template.txt"):
         print("❌ env_template.txt not found")
         return False
-    
+
     try:
-        with open('env_template.txt', 'r') as template:
+        with open("env_template.txt", "r") as template:
             content = template.read()
-        
-        with open('.env', 'w') as env_file:
+
+        with open(".env", "w") as env_file:
             env_file.write(content)
-        
+
         print("✅ .env file created from template")
         print("📝 Please edit .env file with your actual credentials")
         return True
@@ -43,10 +45,12 @@ def create_env_file():
         print(f"❌ Failed to create .env file: {e}")
         return False
 
+
 def check_camera():
     """Check if camera is available"""
     try:
         import cv2
+
         cap = cv2.VideoCapture(0)
         if cap.isOpened():
             print("✅ Camera found and accessible")
@@ -59,9 +63,10 @@ def check_camera():
         print(f"⚠️  Camera check failed: {e}")
         return False
 
+
 def print_next_steps():
     """Print instructions for next steps"""
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("🎉 Setup completed!")
     print("\nNext steps:")
     print("1. Edit .env file with your credentials:")
@@ -74,32 +79,34 @@ def print_next_steps():
     print("\n3. Run the fall detection system:")
     print("   python fall_detection_system.py")
     print("\n📖 See README.md for detailed instructions")
-    print("="*50)
+    print("=" * 50)
+
 
 def main():
     """Main setup function"""
     print("=== Fall Detection System Setup ===\n")
-    
+
     # Check Python version
     if sys.version_info < (3, 8):
         print("❌ Python 3.8 or higher is required")
         return
-    
+
     print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor} detected")
-    
+
     # Install dependencies
     if not install_dependencies():
         return
-    
+
     # Create environment file
     if not create_env_file():
         return
-    
+
     # Check camera (optional)
     check_camera()
-    
+
     # Show next steps
     print_next_steps()
 
+
 if __name__ == "__main__":
-    main() 
+    main()

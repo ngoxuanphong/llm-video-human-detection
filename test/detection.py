@@ -1,8 +1,9 @@
-import cv2
 import base64
-from openai import OpenAI
 import os
-import dotenv 
+
+import cv2
+import dotenv
+from openai import OpenAI
 
 dotenv.load_dotenv()
 
@@ -20,7 +21,7 @@ while video.isOpened():
 
 video.release()
 print(len(base64Frames), "frames read.")
-    
+
 response = client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[
@@ -29,23 +30,13 @@ response = client.chat.completions.create(
             "content": [
                 {
                     "type": "text",
-                    "text": (
-                        "These are frames from a video that I want to upload. Generate a compelling description that I can upload along with the video."
-                    )
+                    "text": ("These are frames from a video that I want to upload. Generate a compelling description that I can upload along with the video."),
                 },
-                *[
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{frame}"
-                        }
-                    }
-                    for frame in base64Frames[0::50]
-                ]
-            ]
+                *[{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frame}"}} for frame in base64Frames[0::50]],
+            ],
         }
     ],
-    max_tokens=300
+    max_tokens=300,
 )
 
 print(response.choices[0].message.content)

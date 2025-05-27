@@ -1,9 +1,10 @@
-from rich.console import Console
 import logging
-from rich.logging import RichHandler
+import os
+
 import dotenv
 from openai import OpenAI
-import os
+from rich.console import Console
+from rich.logging import RichHandler
 from telegram import Bot
 
 # Load environment variables
@@ -11,12 +12,7 @@ dotenv.load_dotenv(override=True)
 
 # Configure Rich console and logging
 console = Console()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(console=console, rich_tracebacks=True)]
-)
+logging.basicConfig(level=logging.INFO, format="%(message)s", datefmt="[%X]", handlers=[RichHandler(console=console, rich_tracebacks=True)])
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
@@ -42,7 +38,7 @@ if SAVE_ANALYSIS_FRAMES:
     logger.info(f"[green]{format_icon}[/green] Lưu khung hình phân tích đã được bật - Format: [cyan]{SAVE_FORMAT}[/cyan]", extra={"markup": True})
 else:
     logger.info("[blue]ℹ[/blue] Lưu khung hình phân tích đã tắt theo cấu hình", extra={"markup": True})
-    
+
 # Initialize Telegram bot only if enabled and credentials available
 if USE_TELE_ALERT and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
     TELEGRAM_BOT = Bot(token=TELEGRAM_BOT_TOKEN)
