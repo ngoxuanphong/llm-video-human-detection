@@ -187,4 +187,4 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 temp/
-evidence/
+evidence_gifs/
