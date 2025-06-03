@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 TEMP_DIR = "temp"
-EVIDENT_DIR = "evidence"
+EVIDENT_DIR = "evidence_gifs"
 OPENAI_CLIENT = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 USE_TELE_ALERT = os.environ.get("USE_TELE_ALERT", "false").lower() == "true"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
