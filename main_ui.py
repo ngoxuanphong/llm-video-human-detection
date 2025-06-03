@@ -19,7 +19,9 @@ from src import (
     USE_TELE_ALERT,
     alert_services,
 )
+from src.audio_warning import AudioWarningSystem
 from src.utils import frames_to_base64, prepare_messages, save_analysis_frames_to_temp
+from src.videollama_detector import VideoLLamaFallDetector
 
 
 class FallDetectionWebUI:
@@ -35,6 +37,15 @@ class FallDetectionWebUI:
         self.frame_count = 0
         self.analysis_count = 0
         self.start_time = time.time()
+
+        # Detection method: "openai" or "videollama3"
+        self.detection_method = "openai"
+
+        # Initialize VideoLLaMA3 detector
+        self.videollama_detector = VideoLLamaFallDetector()
+
+        # Initialize audio warning system
+        self.audio_warning = AudioWarningSystem()
 
         # UI specific
         self.current_frame = None
@@ -119,13 +130,13 @@ class FallDetectionWebUI:
             time.sleep(0.03)  # ~30 FPS
 
     def analyze_frames(self):
-        """Analyze recent frames for fall detection using OpenAI"""
+        """Analyze recent frames for fall detection using selected method"""
         if not self.frame_buffer:
             return
 
         try:
             self.analysis_count += 1
-            self.add_log(f"🔍 Bắt đầu phân tích lần {self.analysis_count}...", "info")
+            self.add_log(f"🔍 Bắt đầu phân tích lần {self.analysis_count} ({self.detection_method.upper()})...", "info")
 
             # Get recent frames
             recent_frames = self.frame_buffer.copy()
@@ -134,27 +145,52 @@ class FallDetectionWebUI:
             if SAVE_ANALYSIS_FRAMES:
                 threading.Thread(target=save_analysis_frames_to_temp, args=([recent_frames])).start()
 
-            base64_frames = frames_to_base64(recent_frames)
+            # Choose analysis method
+            if self.detection_method == "videollama3":
+                analysis_result = self.analyze_frames_videollama3(recent_frames)
+            else:  # Default to OpenAI
+                analysis_result = self.analyze_frames_openai(recent_frames)
 
-            if not base64_frames:
-                return
+            if analysis_result:
+                self.last_analysis_result = analysis_result
+                self.add_log(f"📊 Kết quả phân tích: {analysis_result}", "info")
 
-            # Call OpenAI API
-            response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
-
-            analysis_result = response.choices[0].message.content.strip()
-            self.last_analysis_result = analysis_result
-            self.add_log(f"📊 Kết quả phân tích: {analysis_result}", "info")
-
-            # Check for fall detection (Vietnamese)
-            if analysis_result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
-                self.handle_fall_detection(analysis_result)
+                # Check for fall detection (Vietnamese)
+                if analysis_result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
+                    self.handle_fall_detection(analysis_result)
 
         except Exception as e:
             self.add_log(f"❌ Lỗi phân tích: {e}", "error")
 
+    def analyze_frames_openai(self, recent_frames):
+        """Analyze frames using OpenAI GPT-4V"""
+        try:
+            base64_frames = frames_to_base64(recent_frames)
+            if not base64_frames:
+                return None
+
+            # Call OpenAI API
+            response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
+
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            self.add_log(f"❌ Lỗi OpenAI API: {e}", "error")
+            return None
+
+    def analyze_frames_videollama3(self, recent_frames):
+        """Analyze frames using local VideoLLaMA3 model"""
+        try:
+            if not self.videollama_detector.is_loaded:
+                self.add_log("⚠️ VideoLLaMA3 model chưa được tải", "warning")
+                return None
+
+            return self.videollama_detector.analyze_frames(recent_frames)
+        except Exception as e:
+            self.add_log(f"❌ Lỗi VideoLLaMA3: {e}", "error")
+            return None
+
     def handle_fall_detection(self, analysis_result):
-        """Handle detected fall - send alerts"""
+        """Handle detected fall - send alerts and play audio warning"""
         current_time = time.time()
 
         # Check cooldown to prevent spam
@@ -172,19 +208,26 @@ class FallDetectionWebUI:
             "frame_count": len(self.frame_buffer),
             "evidence_saved": SAVE_ANALYSIS_FRAMES,
             "source": "Live Camera",
+            "detection_method": self.detection_method.upper(),
         }
         self.alert_history.append(alert_data)
 
         # Log the alert
         self.add_log(f"🚨 PHÁT HIỆN TÉ NGÃ: {analysis_result}", "alert")
 
+        # Play audio warning (async to avoid blocking)
+        self.audio_warning.play_warning_async(analysis_result)
+        self.add_log("🔊 Đã phát cảnh báo âm thanh", "success")
+
         # Save evidence as GIF
         try:
-            gif_path = self.save_evidence_gif(self.frame_buffer, timestamp, "Live Camera")
-            if gif_path:
-                alert_data["gif_evidence"] = gif_path
-                self.evidence_gifs.append({"path": gif_path, "timestamp": timestamp, "source": "Live Camera", "details": analysis_result})
-                self.add_log(f"💾 Đã lưu bằng chứng GIF: {os.path.basename(gif_path)}", "success")
+            gif_folder = self.save_evidence_gif(self.frame_buffer, timestamp, "Live Camera")
+            if gif_folder:
+                alert_data["gif_evidence"] = gif_folder
+                self.evidence_gifs.append(
+                    {"path": gif_folder, "timestamp": timestamp, "source": "Live Camera", "details": analysis_result, "detection_method": self.detection_method.upper()}
+                )
+                self.add_log(f"💾 Đã lưu bằng chứng GIF: {os.path.basename(gif_folder)}", "success")
         except Exception as e:
             self.add_log(f"❌ Lỗi lưu GIF: {e}", "error")
 
@@ -245,17 +288,25 @@ class FallDetectionWebUI:
         """Get system status information"""
         uptime = time.strftime("%H:%M:%S", time.gmtime(time.time() - self.start_time))
 
+        # Get VideoLLaMA3 status
+        llama_status = self.videollama_detector.get_model_status()
+        audio_status = self.audio_warning.get_status()
+
         status_text = f"""
 📊 **TRẠNG THÁI HỆ THỐNG**
 
-🎥 **Camera:** {self.camera_status}\n
-🔍 **Lần phân tích:** {self.analysis_count}\n
-📱 **Gửi Tin Nhắn:** {'Bật' if USE_TELE_ALERT else 'Tắt'}\n
-💾 **Lưu Frames:** {'Bật (' + SAVE_FORMAT.upper() + ')' if SAVE_ANALYSIS_FRAMES else 'Tắt'}\n
-⏰ **Thời gian hoạt động:** {uptime}\n
-🔄 **Chu kỳ:** {self.analysis_interval}s\n
-📈 **Khung hình/Buffer Frames:** {self.frame_count} / {len(self.frame_buffer)}\n
-🚨 **Cảnh báo:** {len(self.alert_history)}\n
+🎥 **Camera:** {self.camera_status}
+🤖 **Phương thức phát hiện:** {self.detection_method.upper()}
+🔍 **Lần phân tích:** {self.analysis_count}
+📱 **Gửi Tin Nhắn:** {'Bật' if USE_TELE_ALERT else 'Tắt'}
+💾 **Lưu Frames:** {'Bật (' + SAVE_FORMAT.upper() + ')' if SAVE_ANALYSIS_FRAMES else 'Tắt'}
+⏰ **Thời gian hoạt động:** {uptime}
+🔄 **Chu kỳ:** {self.analysis_interval}s
+📈 **Khung hình/Buffer Frames:** {self.frame_count} / {len(self.frame_buffer)}
+🚨 **Cảnh báo:** {len(self.alert_history)}
+
+🧠 **VideoLLaMA3:** {'✅ Loaded' if llama_status['loaded'] else '❌ Not Loaded'}
+🔊 **Audio Warning:** {'✅ Enabled' if audio_status['enabled'] else '❌ Disabled'} ({audio_status['tts_method']})
 
 📋 **Kết quả phân tích gần nhất:**
 {self.last_analysis_result}
@@ -380,26 +431,37 @@ class FallDetectionWebUI:
             return None
 
         try:
-            self.add_log(f"🔍 Phân tích đoạn video {analysis_count} ({len(frame_buffer)} frames)...", "info")
+            self.add_log(f"🔍 Phân tích đoạn video {analysis_count} ({len(frame_buffer)} frames) - {self.detection_method.upper()}...", "info")
 
-            # Convert frames to base64 (sample frames to avoid too many)
-            sample_frames = frame_buffer[:: max(1, len(frame_buffer) // 5)]  # Sample max 5 frames
-            base64_frames = frames_to_base64(sample_frames)
-
-            if not base64_frames:
-                return None
-
-            # Call OpenAI API
-            response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
-
-            analysis_result = response.choices[0].message.content.strip()
-            self.add_log(f"📊 Kết quả phân tích đoạn {analysis_count}: {analysis_result}", "info")
-
-            return analysis_result
+            # Choose analysis method
+            if self.detection_method == "videollama3":
+                if not self.videollama_detector.is_loaded:
+                    self.add_log("⚠️ VideoLLaMA3 model chưa được tải, chuyển về OpenAI", "warning")
+                    return self.analyze_video_frames_openai(frame_buffer)
+                else:
+                    return self.videollama_detector.analyze_frames(frame_buffer)
+            else:
+                return self.analyze_video_frames_openai(frame_buffer)
 
         except Exception as e:
             self.add_log(f"❌ Lỗi phân tích video frames: {e}", "error")
             return None
+
+    def analyze_video_frames_openai(self, frame_buffer):
+        """Analyze video frames using OpenAI"""
+        # Sample frames to avoid too many
+        sample_frames = frame_buffer[:: max(1, len(frame_buffer) // 5)]  # Sample max 5 frames
+        base64_frames = frames_to_base64(sample_frames)
+
+        if not base64_frames:
+            return None
+
+        # Call OpenAI API
+        response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
+
+        analysis_result = response.choices[0].message.content.strip()
+        self.add_log(f"📊 Kết quả phân tích OpenAI: {analysis_result}", "info")
+        return analysis_result
 
     def handle_video_fall_detection(self, analysis_result, frame_buffer, timestamp, source_video):
         """Handle fall detection from uploaded video"""
@@ -413,18 +475,31 @@ class FallDetectionWebUI:
             "evidence_saved": True,
             "source": f"Video: {os.path.basename(source_video)}",
             "video_timestamp": f"{timestamp:.1f}s",
+            "detection_method": self.detection_method.upper(),
         }
 
         self.alert_history.append(alert_data)
         self.add_log(f"🚨 PHÁT HIỆN TÉ NGÃ TRONG VIDEO: {analysis_result} tại {timestamp:.1f}s", "alert")
 
+        # Play audio warning for video detection too
+        self.audio_warning.play_warning_async(analysis_result)
+        self.add_log("🔊 Đã phát cảnh báo âm thanh cho video", "success")
+
         # Save evidence as GIF
         try:
-            gif_path = self.save_evidence_gif(frame_buffer, detection_time, source_video)
-            if gif_path:
-                alert_data["gif_evidence"] = gif_path
-                self.evidence_gifs.append({"path": gif_path, "timestamp": detection_time, "source": os.path.basename(source_video), "details": analysis_result})
-                self.add_log(f"💾 Đã lưu bằng chứng GIF: {os.path.basename(gif_path)}", "success")
+            gif_folder = self.save_evidence_gif(frame_buffer, detection_time, source_video)
+            if gif_folder:
+                alert_data["gif_evidence"] = gif_folder
+                self.evidence_gifs.append(
+                    {
+                        "path": gif_folder,
+                        "timestamp": detection_time,
+                        "source": os.path.basename(source_video),
+                        "details": analysis_result,
+                        "detection_method": self.detection_method.upper(),
+                    }
+                )
+                self.add_log(f"💾 Đã lưu bằng chứng GIF: {os.path.basename(gif_folder)}", "success")
         except Exception as e:
             self.add_log(f"❌ Lỗi lưu GIF: {e}", "error")
 
@@ -441,36 +516,73 @@ class FallDetectionWebUI:
                 self.add_log(f"❌ Lỗi gửi Telegram: {e}", "error")
 
     def save_evidence_gif(self, frame_buffer, timestamp, source_info):
-        """Save frame buffer as GIF evidence"""
+        """Save frame buffer as GIF evidence with same format as temp folder"""
         try:
             # Create evidence directory if not exists
             evidence_dir = "evidence_gifs"
             os.makedirs(evidence_dir, exist_ok=True)
 
-            # Generate filename
-            safe_timestamp = timestamp.replace(":", "-").replace(" ", "_")
-            filename = f"fall_evidence_{safe_timestamp}.gif"
-            gif_path = os.path.join(evidence_dir, filename)
+            # Create timestamp folder (matching temp folder format)
+            safe_timestamp = timestamp.replace(":", "").replace(" ", "_").replace("-", "")
+            timestamp_folder = os.path.join(evidence_dir, f"fall_{safe_timestamp}")
+            os.makedirs(timestamp_folder, exist_ok=True)
 
-            # Convert frames to PIL Images
+            # Generate GIF filename
+            gif_filename = "fall_evidence.gif"
+            gif_path = os.path.join(timestamp_folder, gif_filename)
+
+            # Generate info filename
+            info_filename = "fall_info.txt"
+            info_path = os.path.join(timestamp_folder, info_filename)
+
+            # Convert frames to PIL Images with proper timing
             pil_frames = []
-            for frame_data in frame_buffer[::2]:  # Skip every other frame for smaller GIF
+            frame_timestamps = []
+
+            for i, frame_data in enumerate(frame_buffer):
                 frame = frame_data["frame"]
-                # Resize frame for smaller file size
+                # Resize frame for consistent size (matching temp folder)
                 height, width = frame.shape[:2]
-                new_width = min(320, width)
+                new_width = min(640, width)  # Max width 640px
                 new_height = int(height * (new_width / width))
                 resized_frame = cv2.resize(frame, (new_width, new_height))
+
+                # Convert BGR to RGB
                 pil_frame = Image.fromarray(cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB))
                 pil_frames.append(pil_frame)
+                frame_timestamps.append(frame_data.get("timestamp", i * 0.1))
 
-            # Save as GIF
+            # Save as GIF with proper timing (10 FPS like temp folder)
             if pil_frames:
-                pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], duration=200, loop=0)  # 200ms per frame
-                return gif_path
+                duration_ms = 100  # 100ms per frame = 10 FPS
+                pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], duration=duration_ms, loop=0)
+
+                # Create info file (matching temp folder format)
+                gif_duration = len(pil_frames) * 0.1  # 10 FPS
+                info_content = f"""Fall Detection Evidence
+========================================
+Timestamp: {timestamp}
+Source: {source_info}
+Detection Method: {self.detection_method.upper()}
+Total frames: {len(pil_frames)}
+Save format: gif
+GIF duration: {gif_duration:.1f}s (10 FPS)
+
+Files saved:
+- {gif_filename}
+
+Analysis Result:
+{self.last_analysis_result}
+"""
+
+                with open(info_path, "w", encoding="utf-8") as f:
+                    f.write(info_content)
+
+                # Return the folder path (not just GIF path) for consistency
+                return timestamp_folder
 
         except Exception as e:
-            self.add_log(f"❌ Lỗi tạo GIF: {e}", "error")
+            self.add_log(f"❌ Lỗi tạo GIF evidence: {e}", "error")
             return None
 
     def get_evidence_gifs_display(self):
@@ -486,11 +598,21 @@ class FallDetectionWebUI:
 **GIF #{len(self.evidence_gifs) - i}**
 🕐 Thời gian: {evidence['timestamp']}
 📁 Nguồn: {evidence['source']}
+🤖 Phương thức: {evidence.get('detection_method', 'UNKNOWN')}
 📝 Chi tiết: {evidence['details']}
-📄 File: {os.path.basename(evidence['path'])}
+📄 Folder: {os.path.basename(evidence['path'])}
 ---
             """
-            gif_paths.append(evidence["path"])
+            # Look for GIF file in the evidence folder
+            evidence_folder = evidence["path"]
+            if os.path.isdir(evidence_folder):
+                # Look for the GIF file inside the folder
+                gif_file = os.path.join(evidence_folder, "fall_evidence.gif")
+                if os.path.exists(gif_file):
+                    gif_paths.append(gif_file)
+            elif evidence_folder.endswith(".gif") and os.path.exists(evidence_folder):
+                # Legacy: direct GIF path
+                gif_paths.append(evidence_folder)
 
         return display_text, gif_paths
 
@@ -499,6 +621,71 @@ class FallDetectionWebUI:
         if not self.upload_processing:
             return "Sẵn sàng upload video", 0
         return f"Đang xử lý video... {self.upload_progress}%", self.upload_progress
+
+    def set_detection_method(self, method):
+        """Set detection method (openai or videollama3)"""
+        if method in ["openai", "videollama3"]:
+            self.detection_method = method
+            self.add_log(f"🔧 Đã chuyển phương thức phát hiện: {method.upper()}", "info")
+            return f"✅ Đã chuyển sang {method.upper()}"
+        else:
+            return "❌ Phương thức không hợp lệ"
+
+    def load_videollama3_model(self):
+        """Load VideoLLaMA3 model"""
+        if self.videollama_detector.is_loaded:
+            return "⚠️ Model đã được tải rồi"
+
+        self.add_log("🚀 Đang tải VideoLLaMA3 model...", "info")
+
+        def load_worker():
+            success = self.videollama_detector.load_model()
+            if success:
+                self.add_log("✅ VideoLLaMA3 model đã tải thành công", "success")
+                # Force UI update by updating the queue
+                self.ui_update_queue.put(("model_loaded", "✅ VideoLLaMA3 model đã tải thành công"))
+            else:
+                self.add_log("❌ Không thể tải VideoLLaMA3 model", "error")
+                self.ui_update_queue.put(("model_error", "❌ Không thể tải VideoLLaMA3 model"))
+
+        threading.Thread(target=load_worker, daemon=True).start()
+        return "⏳ Đang tải model, vui lòng chờ..."
+
+    def unload_videollama3_model(self):
+        """Unload VideoLLaMA3 model"""
+        if not self.videollama_detector.is_loaded:
+            return "⚠️ Model chưa được tải"
+
+        self.videollama_detector.unload_model()
+        self.add_log("🗑️ Đã gỡ VideoLLaMA3 model", "info")
+        self.ui_update_queue.put(("model_unloaded", "✅ Đã gỡ model khỏi bộ nhớ"))
+        return "✅ Đã gỡ model khỏi bộ nhớ"
+
+    def get_model_status_message(self):
+        """Get current model status for UI display"""
+        if self.videollama_detector.is_loaded:
+            return "✅ VideoLLaMA3 model đã sẵn sàng"
+        else:
+            return "❌ VideoLLaMA3 model chưa được tải"
+
+    def test_audio_warning(self):
+        """Test audio warning system"""
+        result = self.audio_warning.test_audio_system()
+        self.add_log(f"🔊 Test audio: {result}", "info")
+        return result
+
+    def set_audio_enabled(self, enabled):
+        """Enable/disable audio warnings"""
+        self.audio_warning.set_enabled(enabled)
+        status = "bật" if enabled else "tắt"
+        self.add_log(f"🔊 Cảnh báo âm thanh đã {status}", "info")
+        return f"✅ Cảnh báo âm thanh đã {status}"
+
+    def set_audio_volume(self, volume):
+        """Set audio volume"""
+        self.audio_warning.set_volume(volume / 100.0)  # Convert from percentage
+        self.add_log(f"🔊 Âm lượng đã đặt: {volume}%", "info")
+        return f"✅ Âm lượng: {volume}%"
 
 
 # Initialize the system
@@ -629,6 +816,62 @@ def create_interface():
             """
             )
 
+        with gr.Tab("🤖 Cấu Hình AI & Âm Thanh"):
+            gr.HTML(
+                """
+            <div class="info-box">
+                <h3>🤖 Quản Lý Mô Hình AI</h3>
+                <p>Chọn phương thức phát hiện té ngã và quản lý mô hình VideoLLaMA3 local</p>
+            </div>
+            """
+            )
+
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### 🧠 Phương Thức Phát Hiện")
+
+                    detection_method = gr.Radio(
+                        choices=[("OpenAI GPT-4V (Online)", "openai"), ("VideoLLaMA3 (Local)", "videollama3")],
+                        value="openai",
+                        label="Chọn phương thức phát hiện",
+                        info="OpenAI cần kết nối internet, VideoLLaMA3 chạy offline",
+                    )
+
+                    method_output = gr.Textbox(label="📢 Trạng Thái Phương Thức", interactive=False)
+
+                    gr.Markdown("### 🎯 VideoLLaMA3 Model")
+
+                    with gr.Row():
+                        load_model_btn = gr.Button("📥 Tải Model", variant="primary")
+                        unload_model_btn = gr.Button("🗑️ Gỡ Model", variant="secondary")
+
+                    model_output = gr.Textbox(label="📢 Trạng Thái Model", interactive=False)
+
+                with gr.Column(scale=1):
+                    gr.Markdown("### 🔊 Cảnh Báo Âm Thanh")
+
+                    audio_enabled = gr.Checkbox(label="🔊 Bật cảnh báo âm thanh", value=True, info="Tự động phát cảnh báo khi phát hiện té ngã")
+
+                    audio_volume = gr.Slider(minimum=0, maximum=100, value=80, step=5, label="🔉 Âm lượng (%)", info="Điều chỉnh âm lượng cảnh báo")
+
+                    with gr.Row():
+                        test_audio_btn = gr.Button("🔊 Test Âm Thanh", variant="primary")
+                        audio_output = gr.Textbox(label="📢 Trạng Thái Audio", interactive=False)
+
+            gr.HTML(
+                """
+            <div class="alert-box">
+                <h4>⚠️ Lưu Ý Quan Trọng</h4>
+                <ul>
+                    <li><strong>OpenAI:</strong> Cần API key và kết nối internet, tốc độ phân tích nhanh</li>
+                    <li><strong>VideoLLaMA3:</strong> Chạy offline, cần GPU mạnh, tốc độ chậm hơn nhưng riêng tư</li>
+                    <li><strong>Audio:</strong> Cần cài đặt espeak-ng: <code>sudo apt-get install espeak-ng</code></li>
+                    <li><strong>RAM:</strong> VideoLLaMA3 cần ~4-8GB VRAM để chạy mượt</li>
+                </ul>
+            </div>
+            """
+            )
+
         with gr.Tab("⚙️ Cấu Hình"):
             gr.HTML(
                 """
@@ -746,6 +989,38 @@ def create_interface():
 
         clear_evidence_btn.click(clear_evidence, outputs=[upload_status, evidence_list, evidence_gallery])
 
+        # AI & Audio Control Event Handlers
+        def on_detection_method_change(method):
+            return fall_system.set_detection_method(method)
+
+        def on_load_model():
+            return fall_system.load_videollama3_model()
+
+        def on_unload_model():
+            return fall_system.unload_videollama3_model()
+
+        def on_test_audio():
+            return fall_system.test_audio_warning()
+
+        def on_audio_enabled_change(enabled):
+            return fall_system.set_audio_enabled(enabled)
+
+        def on_audio_volume_change(volume):
+            return fall_system.set_audio_volume(volume)
+
+        # Bind AI & Audio events
+        detection_method.change(on_detection_method_change, inputs=[detection_method], outputs=[method_output])
+
+        load_model_btn.click(on_load_model, outputs=[model_output])
+
+        unload_model_btn.click(on_unload_model, outputs=[model_output])
+
+        test_audio_btn.click(on_test_audio, outputs=[audio_output])
+
+        audio_enabled.change(on_audio_enabled_change, inputs=[audio_enabled], outputs=[audio_output])
+
+        audio_volume.change(on_audio_volume_change, inputs=[audio_volume], outputs=[audio_output])
+
         # Fast refresh for camera feed (0.1s for real-time video)
         def update_camera():
             return fall_system.get_current_frame()
@@ -759,20 +1034,59 @@ def create_interface():
                 evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
                 return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs)
 
+        # Enhanced status update with model status checking
+        def update_status_and_logs_enhanced():
+            # Check for UI updates from queue
+            model_status_msg = ""
+            try:
+                while not fall_system.ui_update_queue.empty():
+                    update_type, message = fall_system.ui_update_queue.get_nowait()
+                    if update_type in ["model_loaded", "model_error", "model_unloaded"]:
+                        model_status_msg = message
+            except:
+                pass
+
+            if fall_system.is_running:
+                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                if model_status_msg:
+                    return (
+                        fall_system.get_status_info(),
+                        fall_system.get_logs_display(),
+                        fall_system.get_alert_history_display(),
+                        evidence_text,
+                        evidence_gifs,
+                        model_status_msg,
+                    )
+                else:
+                    return (
+                        fall_system.get_status_info(),
+                        fall_system.get_logs_display(),
+                        fall_system.get_alert_history_display(),
+                        evidence_text,
+                        evidence_gifs,
+                        fall_system.get_model_status_message(),
+                    )
+            else:
+                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                if model_status_msg:
+                    return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs, model_status_msg)
+                else:
+                    return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs, fall_system.get_model_status_message())
+
         # Set up dual auto-refresh timers using gr.Timer (Gradio 5.x)
         try:
             # Fast timer for camera feed (0.1s = 10 FPS)
             camera_timer = gr.Timer(0.1)
             camera_timer.tick(update_camera, outputs=[camera_feed])
 
-            # Slower timer for status and logs (2s)
+            # Slower timer for status and logs (2s) with model status
             status_timer = gr.Timer(2.0)
-            status_timer.tick(update_status_and_logs, outputs=[status_display, logs_display, alert_display, evidence_list, evidence_gallery])
+            status_timer.tick(update_status_and_logs_enhanced, outputs=[status_display, logs_display, alert_display, evidence_list, evidence_gallery, model_output])
 
-            print("✅ Dual refresh timers set up: Camera 0.1s, Status/Logs 2s")
+            print("✅ Enhanced dual refresh timers set up: Camera 0.1s, Status/Logs 2s with model status")
 
         except Exception as e:
-            print(f"⚠️ Auto-refresh timers not available: {e}")
+            print(f"⚠️ Enhanced auto-refresh timers not available: {e}")
             # Fallback: single timer for everything at 1s
             try:
                 fallback_timer = gr.Timer(1.0)
@@ -787,13 +1101,22 @@ def create_interface():
                             fall_system.get_alert_history_display(),
                             evidence_text,
                             evidence_gifs,
+                            fall_system.get_model_status_message(),
                         )
                     else:
                         evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
-                        return (fall_system.get_current_frame(), fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs)
+                        return (
+                            fall_system.get_current_frame(),
+                            fall_system.get_status_info(),
+                            gr.update(),
+                            gr.update(),
+                            evidence_text,
+                            evidence_gifs,
+                            fall_system.get_model_status_message(),
+                        )
 
-                fallback_timer.tick(update_all, outputs=[camera_feed, status_display, logs_display, alert_display, evidence_list, evidence_gallery])
-                print("⚠️ Using fallback timer: All components 1s")
+                fallback_timer.tick(update_all, outputs=[camera_feed, status_display, logs_display, alert_display, evidence_list, evidence_gallery, model_output])
+                print("⚠️ Using enhanced fallback timer: All components 1s with model status")
             except:
                 print("❌ No auto-refresh available - manual refresh only")
 
