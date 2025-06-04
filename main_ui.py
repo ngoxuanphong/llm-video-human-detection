@@ -178,15 +178,36 @@ class FallDetectionWebUI:
             return None
 
     def analyze_frames_videollama3(self, recent_frames):
-        """Analyze frames using local VideoLLaMA3 model"""
+        """Analyze frames using local VideoLLaMA3 model + OpenAI Vietnamese analysis"""
         try:
             if not self.videollama_detector.is_loaded:
                 self.add_log("⚠️ VideoLLaMA3 model chưa được tải", "warning")
                 return None
 
-            return self.videollama_detector.analyze_frames(recent_frames)
+            # Check if OpenAI is available for Vietnamese analysis
+            openai_available = bool(os.environ.get("OPENAI_API_KEY"))
+            if not openai_available:
+                self.add_log("⚠️ OpenAI API key không có, không thể phân tích tiếng Việt", "warning")
+                return "LỖI_CẤU_HÌNH: Thiếu OpenAI API key cho phân tích tiếng Việt"
+
+            self.add_log("🔄 Bắt đầu quá trình phân tích 2 bước: VideoLLaMA3 → OpenAI", "info")
+
+            # Call the combined analysis method
+            result = self.videollama_detector.analyze_frames(recent_frames)
+
+            if result.startswith("LỖI_PHÂN_TÍCH_KẾT_HỢP"):
+                self.add_log(f"❌ Lỗi phân tích kết hợp: {result}", "error")
+            elif result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
+                self.add_log("✅ Hoàn thành phân tích 2 bước - Phát hiện té ngã!", "success")
+            elif result.startswith("KHÔNG_PHÁT_HIỆN_TÉ_NGÃ"):
+                self.add_log("✅ Hoàn thành phân tích 2 bước - Không có té ngã", "success")
+            else:
+                self.add_log("⚠️ Kết quả phân tích không theo định dạng mong đợi", "warning")
+
+            return result
+
         except Exception as e:
-            self.add_log(f"❌ Lỗi VideoLLaMA3: {e}", "error")
+            self.add_log(f"❌ Lỗi VideoLLaMA3 + OpenAI: {e}", "error")
             return None
 
     def handle_fall_detection(self, analysis_result):
@@ -292,6 +313,9 @@ class FallDetectionWebUI:
         llama_status = self.videollama_detector.get_model_status()
         audio_status = self.audio_warning.get_status()
 
+        # Check OpenAI availability for VideoLLaMA3 method
+        openai_available = bool(os.environ.get("OPENAI_API_KEY"))
+
         status_text = f"""
 📊 **TRẠNG THÁI HỆ THỐNG**
 
@@ -306,6 +330,7 @@ class FallDetectionWebUI:
 🚨 **Cảnh báo:** {len(self.alert_history)}
 
 🧠 **VideoLLaMA3:** {'✅ Loaded' if llama_status['loaded'] else '❌ Not Loaded'}
+🌐 **OpenAI (for Vietnamese):** {'✅ Available' if openai_available else '❌ Missing API Key'}
 🔊 **Audio Warning:** {'✅ Enabled' if audio_status['enabled'] else '❌ Disabled'} ({audio_status['tts_method']})
 
 📋 **Kết quả phân tích gần nhất:**
@@ -345,7 +370,7 @@ class FallDetectionWebUI:
         return alert_text
 
     def process_uploaded_video(self, video_path):
-        """Process uploaded video file for fall detection"""
+        """Process uploaded video file for fall detection - analyze entire video as one piece"""
         if not video_path:
             return "❌ Không có video được upload!", "Vui lòng chọn file video"
 
@@ -357,7 +382,7 @@ class FallDetectionWebUI:
         self.uploaded_video_path = video_path
 
         try:
-            self.add_log(f"📁 Bắt đầu xử lý video: {os.path.basename(video_path)}", "info")
+            self.add_log(f"📁 Bắt đầu phân tích toàn bộ video: {os.path.basename(video_path)}", "info")
 
             # Open video file
             cap = cv2.VideoCapture(video_path)
@@ -371,12 +396,12 @@ class FallDetectionWebUI:
 
             self.add_log(f"📊 Video info: {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s", "info")
 
-            # Process video in chunks (analyze every 5 seconds)
-            analysis_interval_frames = int(fps * 5) if fps > 0 else 150  # 5 seconds worth of frames
-
+            # Read all frames for complete analysis
             frame_buffer = []
             frame_count = 0
-            analysis_count = 0
+
+            # Sample frames to avoid memory issues (max 60 frames for analysis)
+            sample_interval = max(1, total_frames // 60) if total_frames > 60 else 1
 
             while True:
                 ret, frame = cap.read()
@@ -386,44 +411,64 @@ class FallDetectionWebUI:
                 frame_count += 1
                 current_time = frame_count / fps if fps > 0 else frame_count * 0.033
 
-                # Add frame to buffer
-                frame_buffer.append({"frame": frame, "timestamp": current_time})
+                # Sample frames at intervals to keep memory usage reasonable
+                if frame_count % sample_interval == 0:
+                    frame_buffer.append({"frame": frame, "timestamp": current_time})
 
                 # Update progress
-                self.upload_progress = int((frame_count / total_frames) * 100) if total_frames > 0 else 0
-
-                # Analyze when we have enough frames or at the end
-                if len(frame_buffer) >= analysis_interval_frames or frame_count == total_frames:
-                    analysis_count += 1
-
-                    try:
-                        # Analyze frames for fall detection
-                        analysis_result = self.analyze_video_frames(frame_buffer, analysis_count, video_path)
-
-                        # Check for fall detection
-                        if analysis_result and analysis_result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
-                            self.handle_video_fall_detection(analysis_result, frame_buffer, current_time, video_path)
-
-                    except Exception as e:
-                        self.add_log(f"❌ Lỗi phân tích chunk {analysis_count}: {e}", "error")
-
-                    # Reset buffer
-                    frame_buffer = []
+                self.upload_progress = int((frame_count / total_frames) * 80) if total_frames > 0 else 0
 
             cap.release()
+
+            if not frame_buffer:
+                raise Exception("Không thể đọc frame nào từ video")
+
+            self.add_log(f"📊 Đã sample {len(frame_buffer)} frames từ {frame_count} frames tổng", "info")
+            self.upload_progress = 85
+
+            # Analyze the entire video as one piece
+            self.add_log("🔍 Bắt đầu phân tích toàn bộ video...", "info")
+
+            analysis_result = self.analyze_video_frames(frame_buffer, 1, video_path)
+            self.upload_progress = 95
+
+            # Display result prominently
+            result_summary = ""
+            if analysis_result:
+                self.last_analysis_result = analysis_result
+                self.add_log(f"📊 Kết quả phân tích: {analysis_result}", "info")
+
+                # Check for fall detection
+                if analysis_result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
+                    self.handle_video_fall_detection(analysis_result, frame_buffer, duration / 2, video_path)
+                    result_summary = f"🚨 TÉ NGÃ ĐƯỢC PHÁT HIỆN!\n{analysis_result}"
+                elif analysis_result.startswith("KHÔNG_PHÁT_HIỆN_TÉ_NGÃ"):
+                    result_summary = f"✅ KHÔNG CÓ TÉ NGÃ\n{analysis_result}"
+                else:
+                    result_summary = f"📊 KẾT QUẢ PHÂN TÍCH\n{analysis_result}"
+            else:
+                result_summary = "❌ Không thể phân tích video"
+
             self.upload_processing = False
             self.upload_progress = 100
 
-            result_msg = f"✅ Hoàn thành xử lý video! Đã phân tích {analysis_count} đoạn video"
-            self.add_log(result_msg, "success")
+            completion_msg = f"✅ Hoàn thành phân tích video!\nFrames gốc: {frame_count}\nFrames phân tích: {len(frame_buffer)}"
+            self.add_log(completion_msg, "success")
 
-            return result_msg, f"Video: {os.path.basename(video_path)}\nFrames: {frame_count}\nPhân tích: {analysis_count} đoạn"
+            video_info = f"""📹 Video: {os.path.basename(video_path)}
+⏱️ Thời lượng: {duration:.1f}s
+📊 Frames: {frame_count} (phân tích {len(frame_buffer)})
+🤖 Phương thức: {self.detection_method.upper()}
+
+{result_summary}"""
+
+            return completion_msg, video_info
 
         except Exception as e:
             self.upload_processing = False
             error_msg = f"❌ Lỗi xử lý video: {e}"
             self.add_log(error_msg, "error")
-            return error_msg, "Xử lý thất bại"
+            return error_msg, f"Xử lý thất bại: {str(e)}"
 
     def analyze_video_frames(self, frame_buffer, analysis_count, source_video):
         """Analyze frames from uploaded video"""
@@ -431,7 +476,7 @@ class FallDetectionWebUI:
             return None
 
         try:
-            self.add_log(f"🔍 Phân tích đoạn video {analysis_count} ({len(frame_buffer)} frames) - {self.detection_method.upper()}...", "info")
+            self.add_log(f"🔍 Phân tích video hoàn chỉnh ({len(frame_buffer)} frames) - {self.detection_method.upper()}...", "info")
 
             # Choose analysis method
             if self.detection_method == "videollama3":
@@ -449,12 +494,19 @@ class FallDetectionWebUI:
 
     def analyze_video_frames_openai(self, frame_buffer):
         """Analyze video frames using OpenAI"""
-        # Sample frames to avoid too many
-        sample_frames = frame_buffer[:: max(1, len(frame_buffer) // 5)]  # Sample max 5 frames
+        # Sample frames to avoid too many (max 8 frames for better analysis)
+        if len(frame_buffer) > 8:
+            step = len(frame_buffer) // 8
+            sample_frames = frame_buffer[::step][:8]  # Take exactly 8 frames
+        else:
+            sample_frames = frame_buffer
+
         base64_frames = frames_to_base64(sample_frames)
 
         if not base64_frames:
             return None
+
+        self.add_log(f"📤 Gửi {len(base64_frames)} frames tới OpenAI để phân tích...", "info")
 
         # Call OpenAI API
         response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
@@ -772,10 +824,11 @@ def create_interface():
             <div class="alert-box">
                 <h4>⚠️ Lưu Ý Quan Trọng</h4>
                 <ul>
-                    <li>Video sẽ được phân tích từng đoạn 5 giây</li>
-                    <li>Quá trình có thể mất thời gian tùy theo độ dài video</li>
-                    <li>Kết quả sẽ hiển thị trong lịch sử cảnh báo</li>
+                    <li>Video sẽ được phân tích toàn bộ như một đoạn duy nhất</li>
+                    <li>Hệ thống sẽ sample tối đa 60 frames để phân tích (tránh quá tải bộ nhớ)</li>
+                    <li>Kết quả sẽ hiển thị ngay trong phần thông tin video</li>
                     <li>GIF bằng chứng sẽ được tự động tạo khi phát hiện té ngã</li>
+                    <li>Thời gian xử lý phụ thuộc vào độ dài video và phương thức phát hiện</li>
                 </ul>
             </div>
             """
@@ -831,10 +884,10 @@ def create_interface():
                     gr.Markdown("### 🧠 Phương Thức Phát Hiện")
 
                     detection_method = gr.Radio(
-                        choices=[("OpenAI GPT-4V (Online)", "openai"), ("VideoLLaMA3 (Local)", "videollama3")],
+                        choices=[("OpenAI GPT-4V (Online)", "openai"), ("VideoLLaMA3 + OpenAI (Hybrid)", "videollama3")],
                         value="openai",
                         label="Chọn phương thức phát hiện",
-                        info="OpenAI cần kết nối internet, VideoLLaMA3 chạy offline",
+                        info="OpenAI: Trực tiếp phân tích. VideoLLaMA3: Mô tả video → OpenAI phân tích tiếng Việt",
                     )
 
                     method_output = gr.Textbox(label="📢 Trạng Thái Phương Thức", interactive=False)
@@ -864,7 +917,8 @@ def create_interface():
                 <h4>⚠️ Lưu Ý Quan Trọng</h4>
                 <ul>
                     <li><strong>OpenAI:</strong> Cần API key và kết nối internet, tốc độ phân tích nhanh</li>
-                    <li><strong>VideoLLaMA3:</strong> Chạy offline, cần GPU mạnh, tốc độ chậm hơn nhưng riêng tư</li>
+                    <li><strong>VideoLLaMA3:</strong> Phân tích 2 bước - VideoLLaMA3 mô tả video (offline) → OpenAI phân tích tiếng Việt (online)</li>
+                    <li><strong>Yêu cầu VideoLLaMA3:</strong> Cần cả VideoLLaMA3 model VÀ OpenAI API key để hoạt động</li>
                     <li><strong>Audio:</strong> Cần cài đặt espeak-ng: <code>sudo apt-get install espeak-ng</code></li>
                     <li><strong>RAM:</strong> VideoLLaMA3 cần ~4-8GB VRAM để chạy mượt</li>
                 </ul>

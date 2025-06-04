@@ -27,7 +27,7 @@ def prepare_messages(base64_frames: list[str]) -> list[dict]:
 
                     Chỉ trả lời theo một trong hai định dạng sau:
                     "PHÁT_HIỆN_TÉ_NGÃ: [mô tả ngắn gọn về những gì bạn thấy]"
-                    "KHÔNG_TÉ_NGÃ: [mô tả ngắn gọn về hoạt động bình thường]"
+                    "KHÔNG_PHÁT_HIỆN_TÉ_NGÃ: [mô tả ngắn gọn về hoạt động bình thường]"
 
                     Hãy rất cẩn thận để tránh báo động giả - chỉ báo cáo PHÁT_HIỆN_TÉ_NGÃ khi bạn chắc chắn rằng đã xảy ra té ngã.""",
                 }
