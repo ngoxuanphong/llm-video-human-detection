@@ -604,13 +604,13 @@ class FallDetectionWebUI:
                 pil_frames.append(pil_frame)
                 frame_timestamps.append(frame_data.get("timestamp", i * 0.1))
 
-            # Save as GIF with proper timing (10 FPS like temp folder)
+            # Save as GIF with proper timing (50 FPS for 5x speed)
             if pil_frames:
-                duration_ms = 100  # 100ms per frame = 10 FPS
+                duration_ms = 20  # 20ms per frame = 50 FPS (5x faster than before)
                 pil_frames[0].save(gif_path, save_all=True, append_images=pil_frames[1:], duration=duration_ms, loop=0)
 
                 # Create info file (matching temp folder format)
-                gif_duration = len(pil_frames) * 0.1  # 10 FPS
+                gif_duration = len(pil_frames) * 0.02  # 50 FPS
                 info_content = f"""Fall Detection Evidence
 ========================================
 Timestamp: {timestamp}
@@ -618,7 +618,7 @@ Source: {source_info}
 Detection Method: {self.detection_method.upper()}
 Total frames: {len(pil_frames)}
 Save format: gif
-GIF duration: {gif_duration:.1f}s (10 FPS)
+GIF duration: {gif_duration:.1f}s (50 FPS - 5x speed)
 
 Files saved:
 - {gif_filename}
@@ -640,33 +640,77 @@ Analysis Result:
     def get_evidence_gifs_display(self):
         """Get list of evidence GIFs for display"""
         if not self.evidence_gifs:
-            return "Chưa có bằng chứng GIF nào...", []
+            return "Chưa có bằng chứng GIF nào...", [], []
 
-        display_text = f"📁 **CÓ {len(self.evidence_gifs)} BẰNG CHỨNG GIF**\n\n"
-
+        # Create list of evidence items for selection
+        evidence_choices = []
         gif_paths = []
-        for i, evidence in enumerate(reversed(self.evidence_gifs[-10:])):  # Show last 10
-            display_text += f"""
-**GIF #{len(self.evidence_gifs) - i}**
-🕐 Thời gian: {evidence['timestamp']}
-📁 Nguồn: {evidence['source']}
-🤖 Phương thức: {evidence.get('detection_method', 'UNKNOWN')}
-📝 Chi tiết: {evidence['details']}
-📄 Folder: {os.path.basename(evidence['path'])}
----
-            """
+
+        for i, evidence in enumerate(reversed(self.evidence_gifs)):  # Most recent first
+            evidence_index = len(self.evidence_gifs) - i
+            choice_text = f"#{evidence_index}: {evidence['timestamp']} - {evidence['source']}"
+            evidence_choices.append(choice_text)  # Just the text, not tuple
+
             # Look for GIF file in the evidence folder
             evidence_folder = evidence["path"]
             if os.path.isdir(evidence_folder):
-                # Look for the GIF file inside the folder
                 gif_file = os.path.join(evidence_folder, "fall_evidence.gif")
                 if os.path.exists(gif_file):
                     gif_paths.append(gif_file)
             elif evidence_folder.endswith(".gif") and os.path.exists(evidence_folder):
-                # Legacy: direct GIF path
                 gif_paths.append(evidence_folder)
 
-        return display_text, gif_paths
+        summary_text = f"📁 **CÓ {len(self.evidence_gifs)} BẰNG CHỨNG GIF**\n\nChọn một mục từ danh sách bên dưới để xem chi tiết."
+
+        return summary_text, evidence_choices, gif_paths
+
+    def get_evidence_details(self, selected_choice):
+        """Get detailed information for selected evidence"""
+        if not selected_choice or not self.evidence_gifs:
+            return "Không có thông tin", None
+
+        try:
+            # Extract the evidence number from the choice text (e.g., "#1: ..." -> 1)
+            if selected_choice.startswith("#"):
+                evidence_number = int(selected_choice.split(":")[0][1:])
+                # Convert to index (evidence_number is 1-based, we need 0-based index from reversed list)
+                selected_index = len(self.evidence_gifs) - evidence_number
+
+                if selected_index < 0 or selected_index >= len(self.evidence_gifs):
+                    return "Chỉ số không hợp lệ", None
+
+                evidence = self.evidence_gifs[selected_index]
+            else:
+                return "Định dạng không hợp lệ", None
+
+        except (ValueError, IndexError):
+            return "Lỗi phân tích lựa chọn", None
+
+        details_text = f"""
+**🎬 BẰNG CHỨNG #{evidence_number}**
+
+📅 **Thời gian:** {evidence['timestamp']}
+📁 **Nguồn:** {evidence['source']}
+🤖 **Phương thức:** {evidence.get('detection_method', 'UNKNOWN')}
+📝 **Chi tiết:** {evidence['details']}
+📄 **Thư mục:** {os.path.basename(evidence['path'])}
+
+---
+✨ **GIF được tăng tốc 5x để xem nhanh hơn**
+🎯 **Phân tích:** {evidence['details']}
+        """
+
+        # Get GIF path
+        evidence_folder = evidence["path"]
+        gif_path = None
+        if os.path.isdir(evidence_folder):
+            gif_file = os.path.join(evidence_folder, "fall_evidence.gif")
+            if os.path.exists(gif_file):
+                gif_path = gif_file
+        elif evidence_folder.endswith(".gif") and os.path.exists(evidence_folder):
+            gif_path = evidence_folder
+
+        return details_text, gif_path
 
     def get_upload_progress(self):
         """Get current upload processing progress"""
@@ -839,31 +883,38 @@ def create_interface():
                 """
             <div class="success-box">
                 <h3>🎬 Bằng Chứng Té Ngã (GIF)</h3>
-                <p>Xem các GIF bằng chứng đã được lưu khi phát hiện té ngã</p>
+                <p>Xem các GIF bằng chứng đã được lưu khi phát hiện té ngã - Tăng tốc 5x</p>
             </div>
             """
             )
 
             with gr.Row():
                 with gr.Column(scale=1):
-                    evidence_list = gr.Markdown(label="📋 Danh Sách Bằng Chứng", value=fall_system.get_evidence_gifs_display()[0])
+                    evidence_summary = gr.Markdown(label="📋 Tổng Quan", value=fall_system.get_evidence_gifs_display()[0])
+
+                    evidence_selector = gr.Dropdown(
+                        label="🎯 Chọn Bằng Chứng", choices=fall_system.get_evidence_gifs_display()[1], value=None, info="Chọn một bằng chứng để xem chi tiết"
+                    )
 
                     with gr.Row():
                         refresh_evidence_btn = gr.Button("🔄 Cập Nhật", size="sm")
                         clear_evidence_btn = gr.Button("🗑️ Xóa Tất Cả", variant="secondary", size="sm")
 
                 with gr.Column(scale=2):
-                    evidence_gallery = gr.Gallery(label="🎬 GIF Bằng Chứng", show_label=True, elem_id="evidence_gallery", columns=2, rows=3, height="auto")
+                    evidence_details = gr.Markdown(label="📝 Chi Tiết Bằng Chứng", value="Chọn một bằng chứng từ danh sách để xem chi tiết...")
+
+                    evidence_gif_display = gr.Image(label="🎬 GIF Bằng Chứng (5x Speed)", type="filepath", value=None, height=400)
 
             gr.HTML(
                 """
             <div class="info-box">
                 <h4>📋 Hướng Dẫn Sử Dụng</h4>
                 <ul>
-                    <li>Click vào GIF trong gallery để xem chi tiết</li>
-                    <li>GIF được tự động tạo khi phát hiện té ngã</li>
-                    <li>Mỗi GIF chứa khoảnh khắc trước và sau khi té ngã</li>
-                    <li>GIF được lưu trong thư mục <code>evidence_gifs/</code></li>
+                    <li>🎯 Chọn bằng chứng từ dropdown để xem chi tiết</li>
+                    <li>🎬 GIF được tăng tốc 5x để xem nhanh hơn</li>
+                    <li>📱 GIF tự động tạo khi phát hiện té ngã</li>
+                    <li>💾 GIF lưu trong thư mục <code>evidence_gifs/</code></li>
+                    <li>🔄 Nhấn "Cập Nhật" để làm mới danh sách</li>
                 </ul>
             </div>
             """
@@ -1016,32 +1067,42 @@ def create_interface():
             return video_worker()
 
         def refresh_evidence():
-            display_text, gif_paths = fall_system.get_evidence_gifs_display()
-            return display_text, gif_paths
+            display_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
+            return display_text, gr.update(choices=evidence_choices, value=None), "Chọn một bằng chứng từ dropdown để xem chi tiết...", None
 
         def clear_evidence():
             try:
                 # Clear from memory
                 fall_system.evidence_gifs.clear()
-
-                # Optionally delete files (uncomment if needed)
-                # import glob
-                # gif_files = glob.glob("evidence_gifs/*.gif")
-                # for gif_file in gif_files:
-                #     os.remove(gif_file)
-
                 fall_system.add_log("🗑️ Đã xóa danh sách bằng chứng GIF", "info")
-                display_text, gif_paths = fall_system.get_evidence_gifs_display()
-                return "✅ Đã xóa danh sách bằng chứng!", display_text, gif_paths
+                display_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
+                return (
+                    "✅ Đã xóa danh sách bằng chứng!",
+                    display_text,
+                    gr.update(choices=evidence_choices, value=None),
+                    "Chọn một bằng chứng từ dropdown để xem chi tiết...",
+                    None,
+                )
             except Exception as e:
-                return f"❌ Lỗi xóa bằng chứng: {e}", "Lỗi", []
+                return f"❌ Lỗi xóa bằng chứng: {e}", "Lỗi", gr.update(choices=[], value=None), "Lỗi", None
+
+        def on_evidence_select(selected_choice):
+            if selected_choice is None:
+                return "Chọn một bằng chứng từ dropdown để xem chi tiết...", None
+
+            # selected_choice is now just the text string
+            details, gif_path = fall_system.get_evidence_details(selected_choice)
+            return details, gif_path
 
         # Bind new events
         upload_btn.click(process_video, inputs=[video_upload], outputs=[upload_status, upload_info])
 
-        refresh_evidence_btn.click(refresh_evidence, outputs=[evidence_list, evidence_gallery])
+        refresh_evidence_btn.click(refresh_evidence, outputs=[evidence_summary, evidence_selector, evidence_details, evidence_gif_display])
 
-        clear_evidence_btn.click(clear_evidence, outputs=[upload_status, evidence_list, evidence_gallery])
+        clear_evidence_btn.click(clear_evidence, outputs=[upload_status, evidence_summary, evidence_selector, evidence_details, evidence_gif_display])
+
+        # Evidence selection event
+        evidence_selector.change(on_evidence_select, inputs=[evidence_selector], outputs=[evidence_details, evidence_gif_display])
 
         # AI & Audio Control Event Handlers
         def on_detection_method_change(method):
@@ -1075,18 +1136,9 @@ def create_interface():
 
         audio_volume.change(on_audio_volume_change, inputs=[audio_volume], outputs=[audio_output])
 
-        # Fast refresh for camera feed (0.1s for real-time video)
+        # Faster refresh for camera feed (0.1s for real-time video)
         def update_camera():
             return fall_system.get_current_frame()
-
-        # Slower refresh for status/logs/alerts/evidence (2s for text data)
-        def update_status_and_logs():
-            if fall_system.is_running:
-                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
-                return (fall_system.get_status_info(), fall_system.get_logs_display(), fall_system.get_alert_history_display(), evidence_text, evidence_gifs)
-            else:
-                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
-                return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs)
 
         # Enhanced status update with model status checking
         def update_status_and_logs_enhanced():
@@ -1101,14 +1153,16 @@ def create_interface():
                 pass
 
             if fall_system.is_running:
-                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                evidence_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
                 if model_status_msg:
                     return (
                         fall_system.get_status_info(),
                         fall_system.get_logs_display(),
                         fall_system.get_alert_history_display(),
                         evidence_text,
-                        evidence_gifs,
+                        gr.update(choices=evidence_choices),  # Only update choices, preserve value
+                        gr.update(),  # evidence_details - don't change
+                        gr.update(),  # evidence_gif_display - don't change
                         model_status_msg,
                     )
                 else:
@@ -1117,15 +1171,35 @@ def create_interface():
                         fall_system.get_logs_display(),
                         fall_system.get_alert_history_display(),
                         evidence_text,
-                        evidence_gifs,
+                        gr.update(choices=evidence_choices),  # Only update choices, preserve value
+                        gr.update(),  # evidence_details - don't change
+                        gr.update(),  # evidence_gif_display - don't change
                         fall_system.get_model_status_message(),
                     )
             else:
-                evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                evidence_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
                 if model_status_msg:
-                    return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs, model_status_msg)
+                    return (
+                        fall_system.get_status_info(),
+                        gr.update(),
+                        gr.update(),
+                        evidence_text,
+                        gr.update(choices=evidence_choices),
+                        gr.update(),
+                        gr.update(),
+                        model_status_msg,
+                    )
                 else:
-                    return (fall_system.get_status_info(), gr.update(), gr.update(), evidence_text, evidence_gifs, fall_system.get_model_status_message())
+                    return (
+                        fall_system.get_status_info(),
+                        gr.update(),
+                        gr.update(),
+                        evidence_text,
+                        gr.update(choices=evidence_choices),
+                        gr.update(),
+                        gr.update(),
+                        fall_system.get_model_status_message(),
+                    )
 
         # Set up dual auto-refresh timers using gr.Timer (Gradio 5.x)
         try:
@@ -1135,7 +1209,10 @@ def create_interface():
 
             # Slower timer for status and logs (2s) with model status
             status_timer = gr.Timer(2.0)
-            status_timer.tick(update_status_and_logs_enhanced, outputs=[status_display, logs_display, alert_display, evidence_list, evidence_gallery, model_output])
+            status_timer.tick(
+                update_status_and_logs_enhanced,
+                outputs=[status_display, logs_display, alert_display, evidence_summary, evidence_selector, evidence_details, evidence_gif_display, model_output],
+            )
 
             print("✅ Enhanced dual refresh timers set up: Camera 0.1s, Status/Logs 2s with model status")
 
@@ -1147,29 +1224,46 @@ def create_interface():
 
                 def update_all():
                     if fall_system.is_running:
-                        evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                        evidence_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
                         return (
                             fall_system.get_current_frame(),
                             fall_system.get_status_info(),
                             fall_system.get_logs_display(),
                             fall_system.get_alert_history_display(),
                             evidence_text,
-                            evidence_gifs,
+                            gr.update(choices=evidence_choices),  # Only update choices, preserve value
+                            gr.update(),  # evidence_details - don't change
+                            gr.update(),  # evidence_gif_display - don't change
                             fall_system.get_model_status_message(),
                         )
                     else:
-                        evidence_text, evidence_gifs = fall_system.get_evidence_gifs_display()
+                        evidence_text, evidence_choices, gif_paths = fall_system.get_evidence_gifs_display()
                         return (
                             fall_system.get_current_frame(),
                             fall_system.get_status_info(),
                             gr.update(),
                             gr.update(),
                             evidence_text,
-                            evidence_gifs,
+                            gr.update(choices=evidence_choices),  # Only update choices, preserve value
+                            gr.update(),  # evidence_details - don't change
+                            gr.update(),  # evidence_gif_display - don't change
                             fall_system.get_model_status_message(),
                         )
 
-                fallback_timer.tick(update_all, outputs=[camera_feed, status_display, logs_display, alert_display, evidence_list, evidence_gallery, model_output])
+                fallback_timer.tick(
+                    update_all,
+                    outputs=[
+                        camera_feed,
+                        status_display,
+                        logs_display,
+                        alert_display,
+                        evidence_summary,
+                        evidence_selector,
+                        evidence_details,
+                        evidence_gif_display,
+                        model_output,
+                    ],
+                )
                 print("⚠️ Using enhanced fallback timer: All components 1s with model status")
             except:
                 print("❌ No auto-refresh available - manual refresh only")
