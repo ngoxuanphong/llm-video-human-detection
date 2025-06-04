@@ -27,7 +27,7 @@ def prepare_messages(base64_frames: list[str]) -> list[dict]:
 
                     Chỉ trả lời theo một trong hai định dạng sau:
                     "PHÁT_HIỆN_TÉ_NGÃ: [mô tả ngắn gọn về những gì bạn thấy]"
-                    "KHÔNG_TÉ_NGÃ: [mô tả ngắn gọn về hoạt động bình thường]"
+                    "KHÔNG_PHÁT_HIỆN_TÉ_NGÃ: [mô tả ngắn gọn về hoạt động bình thường]"
 
                     Hãy rất cẩn thận để tránh báo động giả - chỉ báo cáo PHÁT_HIỆN_TÉ_NGÃ khi bạn chắc chắn rằng đã xảy ra té ngã.""",
                 }
@@ -85,14 +85,14 @@ def save_analysis_frames_to_temp(frames, folder_dir=TEMP_DIR):
             gif_path = os.path.join(save_dir, "analysis.gif")
             # Convert BGR to RGB for imageio
             rgb_frames = [cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) for frame in frame_arrays]
-            imageio.mimsave(gif_path, rgb_frames, duration=0.1, loop=0)  # 5x faster (0.1s per frame = 10 FPS)
+            imageio.mimsave(gif_path, rgb_frames, duration=0.02, loop=0)  # 5x faster (0.02s per frame = 50 FPS)
             saved_files.append(gif_path)
             logger.info(f"[green]🎞️[/green] Đã tạo GIF: [cyan]{gif_path}[/cyan]", extra={"markup": True})
 
         # Save as MP4 video if requested
         if SAVE_FORMAT in ["video", "all"] and len(frame_arrays) > 1:
             video_path = os.path.join(save_dir, "analysis.mp4")
-            save_demo_video(frame_arrays, video_path, fps=10.0)  # 5x faster (10 FPS)
+            save_demo_video(frame_arrays, video_path, fps=50.0)  # 5x faster (50 FPS)
             saved_files.append(video_path)
             logger.info(f"[green]🎬[/green] Đã tạo video: [cyan]{video_path}[/cyan]", extra={"markup": True})
 
@@ -105,9 +105,9 @@ def save_analysis_frames_to_temp(frames, folder_dir=TEMP_DIR):
             f.write(f"Total frames: {len(frame_arrays)}\n")
             f.write(f"Save format: {SAVE_FORMAT}\n")
             if SAVE_FORMAT in ["gif", "all"]:
-                f.write(f"GIF duration: {len(frame_arrays) * 0.1:.1f}s (10 FPS)\n")
+                f.write(f"GIF duration: {len(frame_arrays) * 0.02:.1f}s (50 FPS - 5x speed)\n")
             if SAVE_FORMAT in ["video", "all"]:
-                f.write(f"Video duration: {len(frame_arrays) / 10.0:.1f}s (10 FPS)\n")
+                f.write(f"Video duration: {len(frame_arrays) / 50.0:.1f}s (50 FPS - 5x speed)\n")
             f.write("\nFiles saved:\n")
             for file_path in saved_files:
                 f.write(f"- {os.path.basename(file_path)}\n")
