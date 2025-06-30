@@ -22,7 +22,7 @@ from src import (
 from src.audio_warning import AudioWarningSystem
 from src.utils import frames_to_base64, prepare_messages, save_analysis_frames_to_temp
 from src.videollama_detector import VideoLLamaFallDetector
-
+from loguru import logger
 
 class FallDetectionWebUI:
     def __init__(self):
@@ -60,7 +60,6 @@ class FallDetectionWebUI:
 
         # Video upload processing
         self.upload_processing = False
-        self.upload_progress = 0
         self.uploaded_video_path = None
 
         # Evidence storage
@@ -93,6 +92,7 @@ class FallDetectionWebUI:
     def add_log(self, message, log_type="info"):
         """Add log message with timestamp"""
         timestamp = datetime.now().strftime("%H:%M:%S")
+        logger.info(f"[{timestamp}] {log_type} {message}")
         log_entry = {"time": timestamp, "message": message, "type": log_type}
         self.system_logs.append(log_entry)
         # Keep only last 100 logs
@@ -378,7 +378,6 @@ class FallDetectionWebUI:
             return "❌ Đang xử lý video khác!", "Vui lòng chờ hoàn thành"
 
         self.upload_processing = True
-        self.upload_progress = 0
         self.uploaded_video_path = video_path
 
         try:
@@ -408,15 +407,15 @@ class FallDetectionWebUI:
                 if not ret:
                     break
 
-                frame_count += 1
-                current_time = frame_count / fps if fps > 0 else frame_count * 0.033
+                # frame_count += 1
+                # current_time = frame_count / fps if fps > 0 else frame_count * 0.033
 
-                # Sample frames at intervals to keep memory usage reasonable
-                if frame_count % sample_interval == 0:
-                    frame_buffer.append({"frame": frame, "timestamp": current_time})
+                # # Sample frames at intervals to keep memory usage reasonable
+                # if frame_count % sample_interval == 0:
+                current_time = frame_count / fps if fps > 0 else frame_count * 0.033
+                frame_buffer.append({"frame": frame, "timestamp": current_time})
 
                 # Update progress
-                self.upload_progress = int((frame_count / total_frames) * 80) if total_frames > 0 else 0
 
             cap.release()
 
@@ -424,13 +423,11 @@ class FallDetectionWebUI:
                 raise Exception("Không thể đọc frame nào từ video")
 
             self.add_log(f"📊 Đã sample {len(frame_buffer)} frames từ {frame_count} frames tổng", "info")
-            self.upload_progress = 85
 
             # Analyze the entire video as one piece
             self.add_log("🔍 Bắt đầu phân tích toàn bộ video...", "info")
 
             analysis_result = self.analyze_video_frames(frame_buffer, 1, video_path)
-            self.upload_progress = 95
 
             # Display result prominently
             result_summary = ""
@@ -439,10 +436,10 @@ class FallDetectionWebUI:
                 self.add_log(f"📊 Kết quả phân tích: {analysis_result}", "info")
 
                 # Check for fall detection
-                if analysis_result.startswith("PHÁT_HIỆN_TÉ_NGÃ"):
+                if "PHÁT_HIỆN_TÉ_NGÃ" in analysis_result:
                     self.handle_video_fall_detection(analysis_result, frame_buffer, duration / 2, video_path)
                     result_summary = f"🚨 TÉ NGÃ ĐƯỢC PHÁT HIỆN!\n{analysis_result}"
-                elif analysis_result.startswith("KHÔNG_PHÁT_HIỆN_TÉ_NGÃ"):
+                elif "KHÔNG_PHÁT_HIỆN_TÉ_NGÃ" in analysis_result:
                     result_summary = f"✅ KHÔNG CÓ TÉ NGÃ\n{analysis_result}"
                 else:
                     result_summary = f"📊 KẾT QUẢ PHÂN TÍCH\n{analysis_result}"
@@ -450,7 +447,6 @@ class FallDetectionWebUI:
                 result_summary = "❌ Không thể phân tích video"
 
             self.upload_processing = False
-            self.upload_progress = 100
 
             completion_msg = f"✅ Hoàn thành phân tích video!\nFrames gốc: {frame_count}\nFrames phân tích: {len(frame_buffer)}"
             self.add_log(completion_msg, "success")
@@ -495,9 +491,9 @@ class FallDetectionWebUI:
     def analyze_video_frames_openai(self, frame_buffer):
         """Analyze video frames using OpenAI"""
         # Sample frames to avoid too many (max 8 frames for better analysis)
-        if len(frame_buffer) > 8:
-            step = len(frame_buffer) // 8
-            sample_frames = frame_buffer[::step][:8]  # Take exactly 8 frames
+        if len(frame_buffer) > 16:
+            step = len(frame_buffer) // 16
+            sample_frames = frame_buffer[::step][:16]  # Take exactly 8 frames
         else:
             sample_frames = frame_buffer
 

@@ -188,3 +188,4 @@ cython_debug/
 .cursorindexingignore
 temp/
 evidence_gifs/
+analysis/
