@@ -12,10 +12,10 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 logger = logging.getLogger(__name__)
 
 
-class VideoLLamaFallDetector:
-    """VideoLLaMA3-based fall detection system with OpenAI Vietnamese analysis"""
+class SmolVLMFallDetector:
+    """SmolVLM-based fall detection system with Vietnamese analysis"""
 
-    def __init__(self, model_name="DAMO-NLP-SG/VideoLLaMA3-2B"):
+    def __init__(self, model_name="microsoft/SmolVLM-2.5B"):
         self.model_name = model_name
         self.model = None
         self.processor = None
@@ -49,9 +49,9 @@ Chỉ trả lời theo một trong hai định dạng sau:
             return f"LỖI_PHÂN_TÍCH: Không thể phân tích bằng OpenAI - {str(e)}"
 
     def load_model(self):
-        """Load the VideoLLaMA3 model and processor"""
+        """Load the SmolVLM model and processor"""
         try:
-            logger.info(f"Loading VideoLLaMA3 model: {self.model_name}")
+            logger.info(f"Loading SmolVLM model: {self.model_name}")
 
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
@@ -64,11 +64,11 @@ Chỉ trả lời theo một trong hai định dạng sau:
             self.processor = AutoProcessor.from_pretrained(self.model_name, trust_remote_code=True)
 
             self.is_loaded = True
-            logger.info("VideoLLaMA3 model loaded successfully")
+            logger.info("SmolVLM model loaded successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to load VideoLLaMA3 model: {e}")
+            logger.error(f"Failed to load SmolVLM model: {e}")
             self.is_loaded = False
             return False
 
@@ -86,7 +86,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
                 torch.cuda.empty_cache()
 
             self.is_loaded = False
-            logger.info("VideoLLaMA3 model unloaded")
+            logger.info("SmolVLM model unloaded")
 
         except Exception as e:
             logger.error(f"Error unloading model: {e}")
@@ -118,7 +118,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
             return None
 
     def get_video_description(self, frame_buffer: List[Dict]) -> str:
-        """Get detailed video description from VideoLLaMA3 in English"""
+        """Get detailed video description from SmolVLM in English"""
         if not self.is_loaded:
             logger.error("Model not loaded. Call load_model() first.")
             return "MODEL_NOT_LOADED"
@@ -135,7 +135,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
             if not video_path:
                 return "FAILED_TO_CREATE_VIDEO"
 
-            # Ask VideoLLaMA3 for detailed description in English
+            # Ask SmolVLM for detailed description in English
             question = """Describe this video in detail. Focus on:
             1. What people are doing in the video
             2. Any movements, actions, or activities
@@ -159,7 +159,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
                 },
             ]
 
-            # Process with VideoLLaMA3
+            # Process with SmolVLM
             start_time = time.time()
 
             inputs = self.processor(conversation=conversation, return_tensors="pt")
@@ -207,7 +207,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
                 response = "Video shows people in an indoor environment, but specific activities are unclear from the footage."
 
             analysis_time = time.time() - start_time
-            logger.info(f"VideoLLaMA3 description completed in {analysis_time:.2f}s")
+            logger.info(f"SmolVLM description completed in {analysis_time:.2f}s")
 
             # Clean up temp file
             try:
@@ -220,11 +220,11 @@ Chỉ trả lời theo một trong hai định dạng sau:
             return response.strip()
 
         except Exception as e:
-            logger.error(f"Error in VideoLLaMA3 video description: {e}")
+            logger.error(f"Error in SmolVLM video description: {e}")
             return f"DESCRIPTION_ERROR: {str(e)}"
 
     def analyze_frames(self, frame_buffer: List[Dict]) -> str:
-        """Analyze frames for fall detection using VideoLLaMA3 + OpenAI flow"""
+        """Analyze frames for fall detection using SmolVLM + OpenAI flow"""
         if not self.is_loaded:
             logger.error("Model not loaded. Call load_model() first.")
             return "MODEL_NOT_LOADED"
@@ -234,14 +234,14 @@ Chỉ trả lời theo một trong hai định dạng sau:
             return "NO_FRAMES"
 
         try:
-            # Step 1: Get detailed video description from VideoLLaMA3
-            logger.info("Step 1: Getting video description from VideoLLaMA3...")
+            # Step 1: Get detailed video description from SmolVLM
+            logger.info("Step 1: Getting video description from SmolVLM...")
             video_description = self.get_video_description(frame_buffer)
 
             if video_description.startswith(("MODEL_NOT_LOADED", "NO_FRAMES", "FAILED_TO_CREATE_VIDEO", "DESCRIPTION_ERROR")):
                 return video_description
 
-            logger.info(f"VideoLLaMA3 description: {video_description}")
+            logger.info(f"SmolVLM description: {video_description}")
 
             # Step 2: Analyze description with OpenAI for Vietnamese fall detection
             logger.info("Step 2: Analyzing with OpenAI for Vietnamese fall detection...")
@@ -252,7 +252,7 @@ Chỉ trả lời theo một trong hai định dạng sau:
             return vietnamese_analysis
 
         except Exception as e:
-            logger.error(f"Error in combined VideoLLaMA3+OpenAI analysis: {e}")
+            logger.error(f"Error in combined SmolVLM+OpenAI analysis: {e}")
             return f"LỖI_PHÂN_TÍCH_KẾT_HỢP: {str(e)}"
 
     def get_model_status(self) -> Dict[str, Any]:
