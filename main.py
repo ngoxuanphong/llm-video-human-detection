@@ -9,7 +9,6 @@ from rich.table import Table
 
 from src import (
     EVIDENT_DIR,
-    OPENAI_CLIENT,
     SAVE_ANALYSIS_FRAMES,
     SAVE_FORMAT,
     TELEGRAM_BOT,
@@ -18,7 +17,8 @@ from src import (
     console,
     logger,
 )
-from src.utils import frames_to_base64, prepare_messages, save_analysis_frames_to_temp
+from src.utils import save_analysis_frames_to_temp
+from src.smolvlm_detector import SmolVLMFallDetector
 
 
 class FallDetectionSystem:
@@ -33,6 +33,9 @@ class FallDetectionSystem:
         self.last_fall_alert = 0
         self.frame_count = 0
         self.analysis_count = 0
+        
+        # Initialize SmolVLM detector
+        self.smolvlm_detector = SmolVLMFallDetector()
 
     def create_status_table(self):
         """Create a status table for real-time monitoring"""
@@ -106,7 +109,7 @@ class FallDetectionSystem:
                 break
 
     def analyze_frames(self):
-        """Analyze recent frames for fall detection using OpenAI"""
+        """Analyze recent frames for fall detection using SmolVLM"""
         if not self.frame_buffer:
             return
 
@@ -121,15 +124,15 @@ class FallDetectionSystem:
             if SAVE_ANALYSIS_FRAMES:
                 threading.Thread(target=save_analysis_frames_to_temp, args=([recent_frames], "analysis")).start()
 
-            base64_frames = frames_to_base64(recent_frames)
+            # Load SmolVLM model if not loaded
+            if not self.smolvlm_detector.is_loaded:
+                logger.info("[yellow]⏳[/yellow] Đang tải SmolVLM model...", extra={"markup": True})
+                if not self.smolvlm_detector.load_model():
+                    logger.error("[red]✗[/red] Không thể tải SmolVLM model", extra={"markup": True})
+                    return
 
-            if not base64_frames:
-                return
-
-            # Call OpenAI API
-            response = OPENAI_CLIENT.chat.completions.create(model="gpt-4o-mini", messages=prepare_messages(base64_frames), max_tokens=150)
-
-            analysis_result = response.choices[0].message.content.strip()
+            # Analyze frames using SmolVLM
+            analysis_result = self.smolvlm_detector.analyze_frames(recent_frames)
             logger.info(f"[green]📊[/green] Kết quả phân tích: [white]{analysis_result}[/white]", extra={"markup": True})
 
             # Check for fall detection (Vietnamese)
