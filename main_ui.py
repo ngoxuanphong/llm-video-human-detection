@@ -136,7 +136,7 @@ class FallDetectionWebUI:
 
         try:
             self.analysis_count += 1
-            self.add_log(f"🔍 Bắt đầu phân tích lần {self.analysis_count} ({self.detection_method.upper()})...", "info")
+            self.add_log(f"🔍 Bắt đầu phân tích lần {self.analysis_count}...", "info")
 
             # Get recent frames
             recent_frames = self.frame_buffer.copy()
@@ -163,7 +163,7 @@ class FallDetectionWebUI:
             self.add_log(f"❌ Lỗi phân tích: {e}", "error")
 
     def analyze_frames_openai(self, recent_frames):
-        """Analyze frames using OpenAI GPT-4V"""
+        """Analyze frames using VLM SmolVLM"""
         try:
             base64_frames = frames_to_base64(recent_frames)
             if not base64_frames:
@@ -320,17 +320,23 @@ class FallDetectionWebUI:
 📊 **TRẠNG THÁI HỆ THỐNG**
 
 🎥 **Camera:** {self.camera_status}
-🤖 **Phương thức phát hiện:** {self.detection_method.upper()}
+
+🤖 **Phương thức phát hiện:** {"SmolVLM" if self.detection_method == "openai" else "VideoLLaMA3 + OpenAI"}
+
 🔍 **Lần phân tích:** {self.analysis_count}
+
 📱 **Gửi Tin Nhắn:** {'Bật' if USE_TELE_ALERT else 'Tắt'}
+
 💾 **Lưu Frames:** {'Bật (' + SAVE_FORMAT.upper() + ')' if SAVE_ANALYSIS_FRAMES else 'Tắt'}
+
 ⏰ **Thời gian hoạt động:** {uptime}
+
 🔄 **Chu kỳ:** {self.analysis_interval}s
+
 📈 **Khung hình/Buffer Frames:** {self.frame_count} / {len(self.frame_buffer)}
+
 🚨 **Cảnh báo:** {len(self.alert_history)}
 
-🧠 **VideoLLaMA3:** {'✅ Loaded' if llama_status['loaded'] else '❌ Not Loaded'}
-🌐 **OpenAI (for Vietnamese):** {'✅ Available' if openai_available else '❌ Missing API Key'}
 🔊 **Audio Warning:** {'✅ Enabled' if audio_status['enabled'] else '❌ Disabled'} ({audio_status['tts_method']})
 
 📋 **Kết quả phân tích gần nhất:**
@@ -800,7 +806,7 @@ def create_interface():
         gr.HTML(
             """
         <div style="text-align: center; margin-bottom: 20px;">
-            <h1>🏥 HỆ THỐNG PHÁT HIỆN TÉ NGÃ BỆNH VIỆN</h1>
+            <h1>🏥 HỆ THỐNG PHÁT HIỆN HÀNH VI NGÃ CỦA CON NGƯỜI BẰNG VLM</h1>
             <p style="font-size: 16px; color: #666;">
                 Hệ thống AI phát hiện té ngã thời gian thực sử dụng Vision Language Model
             </p>
@@ -931,10 +937,10 @@ def create_interface():
                     gr.Markdown("### 🧠 Phương Thức Phát Hiện")
 
                     detection_method = gr.Radio(
-                        choices=[("OpenAI GPT-4V (Online)", "openai"), ("VideoLLaMA3 + OpenAI (Hybrid)", "videollama3")],
+                        choices=[("VLM SmolVLM", "openai"), ("VideoLLaMA3 + OpenAI", "videollama3")],
                         value="openai",
                         label="Chọn phương thức phát hiện",
-                        info="OpenAI: Trực tiếp phân tích. VideoLLaMA3: Mô tả video → OpenAI phân tích tiếng Việt",
+                        info="SmolVLM: Trực tiếp phân tích. VideoLLaMA3: Mô tả video → OpenAI phân tích tiếng Việt",
                     )
 
                     method_output = gr.Textbox(label="📢 Trạng Thái Phương Thức", interactive=False)

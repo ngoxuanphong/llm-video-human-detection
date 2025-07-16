@@ -20,7 +20,7 @@ Dựa trên việc phân tích toàn bộ source code, tôi sẽ mô tả chi ti
 Đây là **Hệ Thống Phát Hiện Té Ngã Bệnh Viện** sử dụng AI với các tính năng:
 - **Phát hiện té ngã thời gian thực** từ camera
 - **Phân tích video upload** để tìm té ngã  
-- **2 phương thức AI**: OpenAI GPT-4V và VideoLLaMA3 + OpenAI hybrid
+- **2 phương thức AI**: VLM SmolVLM và VideoLLaMA3 + OpenAI hybrid
 - **Cảnh báo đa kênh**: âm thanh, Telegram, lưu bằng chứng GIF
 - **Giao diện web** thân thiện với Gradio
 
@@ -124,7 +124,7 @@ Upload File → Read All Frames → Sample Frames → AI Analysis → Evidence G
 
 **Mode 1: OpenAI Direct**
 ```
-Frames → Base64 → OpenAI GPT-4V → Vietnamese Result
+Frames → Base64 → VLM SmolVLM → Vietnamese Result
 ```
 
 **Mode 2: VideoLLaMA3 Hybrid**  
@@ -172,7 +172,7 @@ Fall Detected → [Audio TTS + Telegram Message + GIF Evidence + System Logs] (P
 ### **📊 Technology Stack**
 - **Frontend**: Gradio (Python web framework)
 - **Computer Vision**: OpenCV, PIL
-- **AI Models**: OpenAI GPT-4V, VideoLLaMA3-2B
+- **AI Models**: VLM SmolVLM, VideoLLaMA3-2B
 - **Audio**: gTTS, pygame, system TTS
 - **Messaging**: Telegram Bot API
 - **Threading**: Async/threading for non-blocking operations
@@ -204,7 +204,7 @@ Upload File → Read All Frames → Sample Frames → AI Analysis → Evidence G
 ```
 
 ```plaintext
-Frames → Base64 → OpenAI GPT-4V → Vietnamese Result
+Frames → Base64 → VLM SmolVLM → Vietnamese Result
 ```
 
 ```plaintext
@@ -337,7 +337,7 @@ imageio==2.34.0                  # GIF creation
 imageio-ffmpeg==0.4.9            # Video format support
 
 # AI & Language Models  
-openai==1.12.0                   # OpenAI GPT-4V API
+openai==1.12.0                   # VLM SmolVLM API
 transformers==4.46.3             # VideoLLaMA3 model loading
 
 # Web Interface
@@ -581,7 +581,7 @@ pip install gtts pygame
 #### **Tab 4: 🤖 Cấu Hình AI**
 ```
 1. Chọn detection method:
-   - OpenAI GPT-4V (fast, online)
+   - VLM SmolVLM (fast, online)
    - VideoLLaMA3 + OpenAI (accurate, hybrid)
 2. Load/Unload VideoLLaMA3 model
 3. Test audio warning system
@@ -896,7 +896,7 @@ imageio==2.34.0                  # GIF creation
 imageio-ffmpeg==0.4.9            # Video format support
 
 # AI & Language Models  
-openai==1.12.0                   # OpenAI GPT-4V API
+openai==1.12.0                   # VLM SmolVLM API
 transformers==4.46.3             # VideoLLaMA3 model loading
 
 # Web Interface
@@ -1095,7 +1095,7 @@ pip install gtts pygame
 
 ```plaintext
 1. Chọn detection method:
-   - OpenAI GPT-4V (fast, online)
+   - VLM SmolVLM (fast, online)
    - VideoLLaMA3 + OpenAI (accurate, hybrid)
 2. Load/Unload VideoLLaMA3 model
 3. Test audio warning system
